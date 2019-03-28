@@ -1,0 +1,86 @@
+$(Include=..\1.config\general_config.txt);
+T6_LANCAMENTO_TEMP:
+LOAD *
+FROM
+$(var_path_tra_dat)T2_LANCAMENTO.qvd (qvd)
+//where data_num >= num('01/01/'&Year(today()))
+;
+left join (T6_LANCAMENTO_TEMP)
+LOAD tarefa_id, projeto_faturavel
+FROM $(var_path_tra_dat)T2_PROJETO.qvd (qvd)
+;
+
+LEFT JOIN (T6_LANCAMENTO_TEMP)
+LOAD tarefa_id, 
+     Interval(Sum(horas_previstas),'hh:mm') as horas_previstas_agrup
+FROM
+$(var_path_tra_dat)T5_HORAS_PREVISTAS.qvd
+(qvd) 
+Group by tarefa_id;
+
+
+T6_LANCAMENTO_TEMP2:
+LOAD *
+	,interval(if(flag_corte=1
+		,(horas_previstas_agrup-peek('realizado_acumulado')) //teve corte
+		,if(flag_corte=2
+			,horas_previstas_agrup //virou direto
+			,if(flag_corte=3
+				,0 //nfat
+				,if(flag_corte=4
+					,horas_realizadas //fat
+					,horas_realizadas //fat
+					)
+				)
+			)
+		),'hh:mm') as horas_realizadas_fat
+	,interval(if(flag_corte=1
+		,realizado_acumulado-horas_previstas_agrup //teve corte
+		,if(flag_corte=2
+			,horas_realizadas-horas_previstas_agrup //virou direto
+			,if(flag_corte=3
+				,horas_realizadas //nfat
+				,if(flag_corte=4
+					,0 //fat
+					,0 //fat
+					)
+				)
+			)
+		),'hh:mm') as horas_realizadas_nfat
+	;
+LOAD *
+	,if(peek('tarefa_id')=tarefa_id and realizado_acumulado>horas_previstas_agrup and peek('realizado_acumulado')<peek('horas_previstas_agrup')
+		,1 //teve corte
+		,if(realizado_acumulado>horas_previstas_agrup and peek('realizado_acumulado')<peek('horas_previstas_agrup')
+			,2 //virou direto
+			,if(peek('tarefa_id')=tarefa_id and realizado_acumulado>horas_previstas_agrup
+				,3 //nfat
+				,if(peek('tarefa_id')=tarefa_id
+					,4 //fat
+					,5 //fat
+					)
+				)
+			)
+		) as flag_corte
+	;
+LOAD *
+	,RowNo() as teste
+	,Interval(alt(if(peek('tarefa_id')=tarefa_id,alt(peek('realizado_acumulado'),0)+alt(horas_realizadas,0),alt(horas_realizadas,0)),0),'hh:mm') as realizado_acumulado
+Resident T6_LANCAMENTO_TEMP
+Order by tarefa_id, data_num;
+
+drop table T6_LANCAMENTO_TEMP;
+drop field projeto_faturavel from T6_LANCAMENTO_TEMP2;
+
+//alterar
+T6_LANCAMENTO:
+load *,'FAT' as lancamento_fat_nfat,horas_realizadas_fat as horas_realizadas_fat_nfat Resident T6_LANCAMENTO_TEMP2 where horas_realizadas_fat>='00:01';
+Concatenate (T6_LANCAMENTO)
+load *,'nFAT' as lancamento_fat_nfat,horas_realizadas_nfat as horas_realizadas_fat_nfat Resident T6_LANCAMENTO_TEMP2 where horas_realizadas_nfat>='00:01';
+drop table T6_LANCAMENTO_TEMP2;
+//drop fields horas_realizadas_fat, horas_realizadas_nfat;
+//--
+
+STORE T6_LANCAMENTO into $(var_path_tra_dat)T6_LANCAMENTO.qvd (qvd);
+
+DROP Table T6_LANCAMENTO;

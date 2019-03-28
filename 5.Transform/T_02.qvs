@@ -1,0 +1,316 @@
+$(Include=..\1.config\general_config.txt);
+
+let vVAR1 = null();
+
+STORE:
+load * inline [
+STORE
+T2_CALENDAR
+T2_ORGANIZACAO
+T2_PROJETO
+T2_ESFORCO_TAREFA
+T2_LANCAMENTO
+T2_TAB_DATA
+];
+
+DAYS_WEEK:
+mapping LOAD * inline [
+id,name
+1,MO
+2,TU
+3,WE
+4,TH
+5,FR
+6,SA
+7,SU
+];
+//seleciona todos os registros com data maior que hj e que tenho tarefa no nome
+T_CALENDAR:
+LOAD
+	 calendar_desc
+	,id
+	,concat_full
+	,concat_count
+	,concat_until
+	,concat_dia_semana
+	,data_inicio
+	,data_fim
+	,hora_inicial
+	,hora_final
+	,funcionario_id
+	,tarefa_id
+	,horas_futuras
+	,fim_frequencia
+	,flag_tarefa_id
+	,if(len(concat_count)>0 and len(SubStringCount(concat_dia_semana, ','))>0, data_inicio+((7*concat_count/(SubStringCount(concat_dia_semana, ',')+1))-1)) as data_limite
+FROM $(var_path_tra_dat)T_CALENDAR.qvd (qvd)
+WHERE
+	 flag_tarefa_id=1 AND 
+	 fim_frequencia>today()
+	;
+
+// pega a menor data na tabela
+MIN_DATA_INICIO:
+LOAD min(data_inicio) as min_data_inicio RESIDENT T_CALENDAR;
+
+LET var_min_data = peek('min_data_inicio',0,'MIN_DATA_INICIO'); 
+
+//loop, da menor data na tabela até seis meses depois, para "descriptografar" o código do google calendar de repeticoes de registros
+FOR i = $(var_min_data) TO num(AddYears(today(),5))+1;
+
+CALENDAR_1:
+LOAD *
+	,$(i) 											as data_num
+	,applymap('DAYS_WEEK',left(WeekDay($(i)),1)) 	as name
+RESIDENT T_CALENDAR
+WHERE
+	data_inicio<=$(i)
+	and if(len(concat_count)>0, data_limite, fim_frequencia)>=$(i)
+	and ((data_inicio=fim_frequencia) or not isnull(SubField(concat_dia_semana,applymap('DAYS_WEEK',left(WeekDay($(i)),1)),2)))
+;
+
+NEXT;
+
+Left Join
+LOAD *
+FROM $(var_path_ext_dat)calendarcanc.qvd (qvd);
+
+DROP tables T_CALENDAR;
+
+//criacao de chaves
+CALENDAR_2:
+LOAD 
+	 funcionario_id&'|'&data_num 				as chave_lancamento
+ 	,tarefa_id&'|'&funcionario_id&'|'&data_num 	as chave_fato
+ 	,tarefa_id&'|'&funcionario_id 				as chave_tarefa_funcionario
+	,funcionario_id
+	,tarefa_id
+	,data_num
+	,if(horas_futuras>'05:00',interval(horas_futuras-'01:00','hh:mm'),horas_futuras)							as horas_agendadas
+	,RowNo() 								as Num_linha
+WHERE if(peek(id)<>id,1,peek(teste)+1)<=alt(concat_count,9999) and data_num>=today();
+LOAD *
+RESIDENT CALENDAR_1
+Where deletar_flag<>1
+ORDER BY id, data_num;
+
+DROP TABLE CALENDAR_1;
+
+STORE CALENDAR_2 INTO $(var_path_tra_dat)T2_CALENDAR.qvd;
+DROP table MIN_DATA_INICIO
+,CALENDAR_2
+;
+let vMaxData = num(AddYears(today(),5));
+let vMinData = 41640; // 01/01/2014
+
+TAB_DATA_TEMP:
+LOAD
+$(vMinData)+rowno()-1 as data_num
+AutoGenerate($(vMaxData)-$(vMinData)+1);
+
+TAB_DATA:
+LOAD
+	 data_num	
+	,data_num 							as data_num_comparacao						
+    ,date(data_num) 					as data
+    ,date(data_num,'MMM')&'/'&date(data_num,'YY')	as data_mesano
+    ,year(date(data_num)) 				as data_ano
+    ,if(year(date(data_num))>2014,1)	as data_ano_flag
+    ,month(date(data_num)) 				as data_mes
+	,num(month(date(data_num))) 		as data_mes_num
+    ,day(date(data_num)) 				as data_dia
+    ,week(date(data_num)) 				as data_semana
+    ,ceil(num(month(date(data_num)))/6) as data_semestre
+    ,ceil(num(month(date(data_num)))/3) as data_trimestre
+    ,if(data_num<$(UltimaSegunda),1,0)  as data_ultima_segunda_flag
+    ,if(data_num<$(PenultimaSegunda),1,0)  as data_penultima_segunda_flag
+    ,if(data_num>=$(UltimaSegunda)-60,1,0) as data_60dias_flag
+RESIDENT TAB_DATA_TEMP
+;
+drop table TAB_DATA_TEMP;
+STORE TAB_DATA INTO $(var_path_tra_dat)T2_TAB_DATA.qvd;
+drop tables  TAB_DATA
+;
+
+//carregando tabela de organizacao
+T2_ORGANIZACAO:
+LOAD
+	  organizacao_id 
+     ,organizacao_desc_completo
+     ,organizacao_desc
+     ,organizacao_status_id
+FROM $(var_path_tra_dat)T_EMPRESA.qvd (qvd)
+;
+
+left join
+LOAD 
+	 organizacao_status_id
+	,organizacao_status_desc
+FROM $(var_path_tra_dat)T_TIPO_ORGANIZACAO.qvd (qvd)
+;
+
+STORE T2_ORGANIZACAO INTO $(var_path_tra_dat)T2_ORGANIZACAO.qvd;
+DROP TABLE T2_ORGANIZACAO;
+//criando hierarquia entre os contratos | validar se ainda eh necessario
+Hierarchy(id_filho, id_pai, nome_filho, nome_pai, nome_filho, projeto_concat, '/')
+PROJETOS:
+LOAD
+ tipo_projeto
+,projeto_situacao_id
+,projeto_inicio_previsto
+,projeto_fim_previsto
+,projeto_inicio_real
+,projeto_fim_real
+,id_pai
+,id_filho
+,nome_filho
+,tarefa_ativa
+,tarefa_fim_prev
+,tarefa_fim_real
+,tarefa_inicio_prev
+,tarefa_inicio_real
+FROM $(var_path_tra_dat)T_TAREFA.qvd (qvd)
+;
+
+//resultado da hierarquia
+NoConcatenate
+T2_PROJETO:
+LOAD *
+	,nome_filho1 			as projeto_desc
+	,id_filho 				as tarefa_id
+	,nome_filho				as tarefa_desc
+	,if(len(id_pai)=0,1,0)	as flag_projeto
+RESIDENT PROJETOS;
+DROP TABLE PROJETOS;
+
+//adicionando dimensoes
+Left join (T2_PROJETO)
+LOAD projeto_desc, tarefa_id as projeto_id
+RESIDENT T2_PROJETO
+WHERE projeto_desc=tarefa_desc; 
+
+LEFT JOIN (T2_PROJETO)
+LOAD 
+	 projeto_id
+    ,tipo_projeto as projeto_tipo_id
+RESIDENT T2_PROJETO
+WHERE projeto_id=tarefa_id
+;
+
+LEFT JOIN (T2_PROJETO)
+LOAD 
+	 projeto_situacao_id
+    ,projeto_situacao_desc
+    ,projeto_tipo_ativo
+FROM $(var_path_tra_dat)T_SITUACAO.qvd (qvd)
+;
+
+LEFT JOIN (T2_PROJETO)
+LOAD
+	 projeto_tipo_id
+    ,projeto_tipo_desc
+    ,projeto_tipo_interno_desc
+    ,projeto_faturavel
+FROM $(var_path_tra_dat)T_TIPO_MODELO.qvd (qvd)
+;
+
+LEFT JOIN (T2_PROJETO)
+LOAD 
+	 organizacao_id
+	,projeto_id
+FROM $(var_path_tra_dat)T_CLIENTE_PROJETO.qvd (qvd)
+;
+//////////////////////////////////////////////////// responsavel projeto inicio
+LEFT JOIN (T2_PROJETO)
+LOAD
+	 FirstValue(funcionario_id)	as responsavel_id
+    ,tarefa_id				as projeto_id
+FROM $(var_path_tra_dat)T_TAREFA_USUARIO.qvd (qvd)
+WHERE tipo_usuario = 1
+GROUP BY tarefa_id
+;
+
+LEFT JOIN (T2_PROJETO)
+LOAD
+	 funcionario_id			as responsavel_id
+    ,funcionario_desc		as responsavel_desc
+FROM $(var_path_tra_dat)T_MEMBRO.QVD (qvd)
+;
+//////////////////////////////////////////////////// responsavel projeto fim
+
+STORE T2_PROJETO INTO $(var_path_tra_dat)T2_PROJETO.qvd;
+DROP TABLE T2_PROJETO;
+//lenda tabela de esforco do funcionario por tarefa
+ESFORCO_TAREFA:
+LOAD
+	 chave_tarefa_funcionario
+	,tarefa_id
+	,funcionario_id
+    ,esforco_previsto
+    ,esforco_real
+FROM $(var_path_tra_dat)T_TAREFA_USUARIO.qvd (qvd);
+
+STORE ESFORCO_TAREFA INTO $(var_path_tra_dat)T2_ESFORCO_TAREFA.qvd; //REAL_PREVISTO
+DROP TABLE ESFORCO_TAREFA;
+//lendo os lancamentos
+LANCAMENTO_TEMP:
+LOAD
+	 lancamento_id
+	,publicador_id
+	,tarefa_id
+	,data_num
+	,lancamento_hora_inicio
+	,lancamento_hora_fim
+	,intervalo
+	,lancamento_tipo_id
+	,horas_realizadas
+	,horas_100
+	,lancamento_desc
+FROM $(var_path_tra_dat)T_DOCUMENTACAO.qvd (qvd)
+where len(horas_realizadas)>0;
+
+//lendo as dimensoes
+LEFT JOIN (LANCAMENTO_TEMP)
+LOAD
+	 lancamento_tipo_id
+    ,lancamento_tipo_desc
+FROM $(var_path_tra_dat)T_TIPO_DOCUMENTACAO.qvd (qvd)
+;
+
+LEFT JOIN (LANCAMENTO_TEMP)
+LOAD
+	 lancamento_id
+    ,funcionario_id
+    ,esforco
+FROM $(var_path_tra_dat)T_DOCUMENTACAO_EXECUCAO.qvd (qvd)
+;
+
+//criando as chaves e filtrando para data menor de hj
+LANCAMENTO:
+LOAD *
+	,tarefa_id&'|'&funcionario_id&'|'&data_num 	as chave_fato
+	,funcionario_id&'|'&data_num 				as chave_lancamento 
+	,tarefa_id&'|'&funcionario_id 				as chave_tarefa_funcionario
+	,if(lancamento_hora_inicio<'06:00' or lancamento_hora_fim<'06:00' or lancamento_hora_fim>'20:00' or lancamento_hora_inicio>'20:00',1,0) as lanc_flag_noturno
+	,1 										as flag_lancamento
+RESIDENT LANCAMENTO_TEMP
+WHERE data_num <= $(DataOntem)
+;
+
+DROP TABLE LANCAMENTO_TEMP;
+///////////////////////////////// mapping inicio
+//inconformidade dos lancamentos
+TAB_funcionario_LANC_FLAG:
+mapping LOAD funcionario_id
+			,if(horas_realizadas>0,1,0) as funcionario_lanc_flag;
+LOAD
+	 funcionario_id
+	,sum(horas_realizadas)		as horas_realizadas
+RESIDENT LANCAMENTO
+GROUP BY funcionario_id
+;
+///////////////////////////////// mapping fim
+
+STORE LANCAMENTO INTO $(var_path_tra_dat)T2_LANCAMENTO.qvd;
+DROP TABLE LANCAMENTO;
+exit script;

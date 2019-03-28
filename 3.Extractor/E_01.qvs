@@ -1,0 +1,135 @@
+//Carregando o Config:
+$(must_include=..\1.Config\general_config.txt);
+
+LET var_hora_inicio = NOW();
+//---Conexão com banco
+$(var_odbc);
+
+TABLES:
+LOAD owner, 
+     table, 
+     qvd
+FROM $(var_path_con)dictionary.xlsx (ooxml, embedded labels, table is table)
+WHERE extract = 'yes'
+;
+
+LET var_nro_linhas = NoOfRows('TABLES')-1;
+
+FOR a = 0 to NoOfRows('TABLES')-1
+
+	LET var_owner  = PEEK('owner',$(a),'TABLES');
+	LET var_table  = PEEK('table',$(a),'TABLES');
+	LET var_qvd    = PEEK('qvd',$(a),'TABLES');
+	 
+	 
+	FIELDS:
+	LOAD column
+	FROM $(var_path_con)dictionary.xlsx (ooxml, embedded labels, table is field)
+	WHERE qvd = '$(var_qvd)';
+	 
+	LET var_select = PEEK('column',0,'FIELDS');
+	
+	FOR b = 1 to NoOfRows('FIELDS')-1
+		LET var_select = '$(var_select)'&','&PEEK('column',$(b),'FIELDS');
+	NEXT
+	
+	DROP TABLE FIELDS;
+	 
+	 
+	
+	[$(var_table)]:
+	SQL
+		select *
+	 	//select top 100 *
+		//$(vSelect)
+	    From   $(var_owner)$(var_table);
+	    
+	STORE [$(var_table)] INTO [$(var_path_ext_dat)$(var_table).qvd] (QVD);
+	DROP TABLE [$(var_table)];
+
+NEXT
+
+DROP TABLE TABLES;
+
+Drive_Ferias:
+LOAD
+	 Funcionario												as Funcionario
+	,num([Data Inicio]) 									as data_inicio
+	,num([Data Fim]) 										as data_fim
+FROM
+[https://docs.google.com/spreadsheets/d/XXX/gviz/tq?tqx=out:html&tq&gid=38825949&pref=2&pli=1&edit?usp=sharing]
+(html, codepage is 1252, embedded labels, table is @1);
+
+STORE Drive_Ferias INTO $(var_path_ext_dat)Drive_Ferias.qvd (QVD);
+DROP TABLE Drive_Ferias;
+//////////////////////////////////////////////////////////////////////
+Drive_Feriados:
+LOAD
+	 [Data Feriado] as data_num
+	,Motivo			as motivo
+FROM
+[https://docs.google.com/spreadsheets/d/XXX/gviz/tq?tqx=out:html&tq&gid=1763701733&pref=2&pli=1&edit?usp=sharing]
+(html, codepage is 1252, embedded labels, table is @1);
+
+STORE Drive_Feriados INTO $(var_path_ext_dat)Drive_Feriados.qvd (QVD);
+DROP TABLE Drive_Feriados;
+//////////////////////////////////////////////////////////////////////
+Drive_Orcado:
+LOAD
+	 Funcionario													as Funcionario
+	,num([Data Inicio]) 										as data_inicio
+	,if(isnull(num([Data Fim])),$(DataOntem),num([Data Fim])) 	as data_fim
+	,[Horas Diarias]											as horas_diarias
+FROM
+[https://docs.google.com/spreadsheets/d/XXX/gviz/tq?tqx=out:html&tq&gid=841643094&pref=2&pli=1&edit?usp=sharing]
+(html, codepage is 1252, embedded labels, table is @1);
+
+STORE Drive_Orcado INTO $(var_path_ext_dat)Drive_Orcado.qvd (QVD);
+DROP TABLE Drive_Orcado;
+//////////////////////////////////////////////////////////////////////
+Drive_Pago:
+LOAD 
+	 num(Data) 							as data_num
+	,Funcionario 							as Funcionario_desc
+	,interval([Horas Pagas], 'hh:mm') 	as horas_orcadas
+    ,1									as horas_pagas_flag
+FROM
+[https://docs.google.com/spreadsheets/d/XXX/gviz/tq?tqx=out:html&tq&gid=416121929&pref=2&pli=1&edit?usp=sharing]
+(html, codepage is 1252, embedded labels, table is @1);
+
+STORE Drive_Pago INTO $(var_path_ext_dat)Drive_Pago.qvd (QVD);
+DROP TABLE Drive_Pago;
+//////////////////////////////////////////////////////////////////////
+QUALIFY *;
+
+#KPI:
+LOAD id, 
+     app, 
+     id_sheet, 
+     kpi_name, 
+     expression, 
+     type,
+     format
+FROM
+$(var_path_con)dictionary.xlsx
+(ooxml, embedded labels, table is kpi);
+
+STORE #KPI INTO $(var_path_ext_dat)#KPI.qvd (QVD);
+DROP TABLE #KPI;
+
+#DIMENSOES:
+LOAD id,
+	app,
+	id_sheet,
+	dimension_name,
+	expression,
+	format
+FROM
+$(var_path_con)dictionary.xlsx
+(ooxml, embedded labels, table is dimension);
+
+STORE #DIMENSOES INTO $(var_path_ext_dat)#DIMENSOES.qvd (QVD);
+DROP TABLE #DIMENSOES;
+LET var_hora_fim = NOW();
+
+EXIT SCRIPT

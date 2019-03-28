@@ -1,0 +1,215 @@
+$(Include=..\1.config\general_config.txt);
+
+STORE:
+load * inline [
+STORE
+T5_HORAS_PREVISTAS
+T5_INCONFOMIDADE
+]
+;
+//unificando o esforco com o desconto
+HORAS_PREVISTAS_TEMP:
+LOAD * FROM $(var_path_tra_dat)T2_ESFORCO_TAREFA.qvd (qvd);
+
+left join (HORAS_PREVISTAS_TEMP)
+LOAD * FROM $(var_path_tra_dat)T3_TABELA_DESCONTO.qvd (qvd);
+
+left join (HORAS_PREVISTAS_TEMP)
+LOAD
+	 id_filho 					as tarefa_id
+	,projeto_inicio_previsto	as data_num
+FROM $(var_path_tra_dat)T_TAREFA.qvd (qvd)
+;
+
+//criando chaves
+HORAS_PREVISTAS:
+LOAD
+	 chave_tarefa_funcionario
+	,chave_tarefa_funcionario&'|'&data_num  as chave_fato
+	,funcionario_id&'|'&data_num 			as chave_lancamento
+	,data_num
+	,funcionario_id
+	,tarefa_id
+	,interval(esforco_previsto-alt(desconto,'00:00'),'hh:mm') as horas_previstas
+RESIDENT HORAS_PREVISTAS_TEMP;
+
+DROP TABLE HORAS_PREVISTAS_TEMP;
+
+STORE HORAS_PREVISTAS INTO $(var_path_tra_dat)T5_HORAS_PREVISTAS.qvd;
+//DROP TABLE HORAS_PREVISTAS;
+//criando char de pesquisa de todos nomes de clientes
+CLIENTES:
+LOAD
+	chr(39)&'*'&subfield(organizacao_desc,' ',1)&'*'&chr(39) as sigla
+FROM $(var_path_tra_dat)T2_ORGANIZACAO.qvd (qvd)
+WHERE not Match(organizacao_id,31,1,16,37)
+;
+
+//unificando os char de pesquisa
+LET var_1 = '';
+LET var_2 = '';
+LET var_num_table = NoOfRows('CLIENTES');
+
+FOR var_periodo = 0 to var_num_table -1
+LET var_1 	= Peek('sigla', $(var_periodo), 'CLIENTES')&',';
+LET var_2 = var_2&var_1;
+NEXT;
+
+LET var_2 = left(var_2,len(var_2)-1);
+
+//lendo todos os lancamentos
+INCONFORMIDADE_TEMP_1:
+LOAD * FROM $(var_path_tra_dat)T2_LANCAMENTO.qvd (qvd);
+
+//carrendo dimensoes
+left join(INCONFORMIDADE_TEMP_1)
+LOAD tarefa_id,projeto_id,organizacao_id,projeto_faturavel FROM $(var_path_tra_dat)T2_PROJETO.qvd (qvd);
+
+left join (INCONFORMIDADE_TEMP_1)
+LOAD funcionario_id as funcionario_id,funcionario_cargo_id,funcionario_funcao_id FROM $(var_path_tra_dat)T3_funcionario.qvd (qvd);
+
+left join (INCONFORMIDADE_TEMP_1)
+LOAD Distinct
+	data_num
+	,week(date(data_num))&'|'&year(date(data_num)) as semanano
+RESIDENT INCONFORMIDADE_TEMP_1;
+
+left join (INCONFORMIDADE_TEMP_1)
+LOAD 
+	Interval(sum(horas_realizadas),'hh:mm') as horas_semana
+	,semanano
+	,funcionario_id
+	RESIDENT INCONFORMIDADE_TEMP_1
+	group by funcionario_id, semanano 
+	;
+
+//adicionando os id de inconformidade
+INCONFORMIDADE_TEMP_2:
+LOAD 
+	 chave_lancamento
+	,if((funcionario_cargo_id=4 and horas_realizadas>'10:48') or (funcionario_cargo_id=7 and horas_realizadas>'08:00'),1)  as inconformidade_horas_maiores
+	,if((funcionario_cargo_id=4 and horas_realizadas<'06:48') or (funcionario_cargo_id=7 and horas_semana<'22:00' and horas_realizadas<'04:24'),2) as inconformidade_horas_menores
+	,if(horas_realizadas<>esforco,4) as inconformidade_esforco
+	,if(lanc_flag_noturno=1 and funcionario_cargo_id<>8,5)			as inconformidade_horas_noturnas
+	,if(flag_desc=1 and funcionario_funcao_id<>8,7) 					as inconformidade_descricao
+	,if(funcionario_cargo_id=8 and horas_realizadas>'00:00' and projeto_faturavel='NFAT',8) as inconformidade_PJ_NFAT
+	,if(projeto_nulo=1,9) as inconformidade_projeto_nulo
+	,if(lancamento_hora_inicio=1 or lancamento_hora_fim=1,10) as inconformidade_hora_nulo
+	,if(WeekDay(date(data_num))=6,11) as inconformidade_domingo; // #BUG validando domingo como 6
+//agrupando por chave e vendo se encontra alguma inconformidade naquela granularidade
+LOAD 
+	 chave_lancamento
+	,interval(sum(horas_realizadas),'hh:mm') 	as horas_realizadas
+	,interval(sum(esforco),'hh:mm') 			as esforco
+	,max(lanc_flag_noturno)						as lanc_flag_noturno
+	,max(if(WildMatch(lancamento_desc,$(var_2)) and organizacao_id=1,1)) as flag_desc
+	,max(funcionario_cargo_id) 						as funcionario_cargo_id
+	,max(funcionario_funcao_id) 					as funcionario_funcao_id
+	,maxstring(projeto_faturavel) 				as projeto_faturavel
+	,max(if(len(projeto_faturavel)=0,1))		as projeto_nulo
+	,max(if(len(lancamento_hora_inicio)=0,1))	as lancamento_hora_inicio
+	,max(if(len(lancamento_hora_fim)=0,1))		as lancamento_hora_fim
+	,max(data_num)								as data_num
+	,max(horas_semana)							as horas_semana
+RESIDENT INCONFORMIDADE_TEMP_1
+GROUP BY chave_lancamento;
+
+drop tables INCONFORMIDADE_TEMP_1, CLIENTES;
+
+//loop de inconformidade
+INCONFORMIDADE:
+LOAD
+	chave_lancamento
+	,max(3) as inconformidade_flag
+FROM $(var_path_tra_dat)T3_TABELA_CONFLITO.qvd (qvd)
+GROUP BY chave_lancamento;
+
+Concatenate
+LOAD
+	chave_lancamento
+	,6 as inconformidade_flag
+FROM $(var_path_tra_dat)T4_INTERVALO.qvd (qvd)
+WHERE len(intervalo_faltante)>0;
+
+Concatenate
+LOAD chave_lancamento
+	,inconformidade_horas_maiores as inconformidade_flag
+RESIDENT INCONFORMIDADE_TEMP_2
+WHERE inconformidade_horas_maiores=1;
+
+Concatenate
+LOAD chave_lancamento
+	,inconformidade_horas_menores as inconformidade_flag
+RESIDENT INCONFORMIDADE_TEMP_2
+WHERE inconformidade_horas_menores=2;
+
+Concatenate
+LOAD chave_lancamento
+	,inconformidade_esforco as inconformidade_flag
+RESIDENT INCONFORMIDADE_TEMP_2
+WHERE inconformidade_esforco=4;
+
+Concatenate
+LOAD chave_lancamento
+	,inconformidade_horas_noturnas as inconformidade_flag
+RESIDENT INCONFORMIDADE_TEMP_2
+WHERE inconformidade_horas_noturnas=5;
+
+Concatenate
+LOAD chave_lancamento
+	,inconformidade_descricao as inconformidade_flag
+RESIDENT INCONFORMIDADE_TEMP_2
+WHERE inconformidade_descricao=7;
+
+Concatenate
+LOAD chave_lancamento
+	,inconformidade_PJ_NFAT as inconformidade_flag
+RESIDENT INCONFORMIDADE_TEMP_2
+WHERE inconformidade_PJ_NFAT=8;
+
+Concatenate
+LOAD chave_lancamento
+	,inconformidade_projeto_nulo as inconformidade_flag
+RESIDENT INCONFORMIDADE_TEMP_2
+WHERE inconformidade_projeto_nulo=9;
+
+Concatenate
+LOAD chave_lancamento
+	,inconformidade_hora_nulo as inconformidade_flag
+RESIDENT INCONFORMIDADE_TEMP_2
+WHERE inconformidade_hora_nulo=10;
+
+Concatenate
+LOAD chave_lancamento
+	,inconformidade_domingo as inconformidade_flag
+RESIDENT INCONFORMIDADE_TEMP_2
+WHERE inconformidade_domingo=11;
+
+Concatenate
+LOAD chave_lancamento as chave_lancamento
+	,12 as inconformidade_flag
+FROM $(var_path_tra_dat)T4_HORA_ORCADA.qvd (qvd)
+WHERE not Exists(chave_lancamento);
+
+left join (INCONFORMIDADE)
+LOAD * inline [
+inconformidade_flag,inconformidade_desc,inconformidade_nivel
+1,'Horas maiores','ALERTA'
+2,'Hora menores','ALERTA'
+3,'Horas intercaladas','ERRO'
+4,'Esforco','ERRO'
+5,'Horas Noturnas','ALERTA'
+6,'Intervalo','ALERTA'
+7,'Descrição','ALERTA'
+8,'PJ nFAT','ERRO'
+9,'Tarefa sem projeto','ALERTA'
+10,'Hora em branco','ALERTA'
+11,'Lanç. Domingo','ALERTA'
+12,'Falta','ALERTA'
+];
+
+DROP TABLE INCONFORMIDADE_TEMP_2;
+
+STORE INCONFORMIDADE 	INTO $(var_path_tra_dat)T5_INCONFORMIDADE.qvd;
+
+DROP TABLE INCONFORMIDADE;

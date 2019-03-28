@@ -1,0 +1,37 @@
+//---general config
+SET ThousandSep='.';
+SET DecimalSep=',';
+SET MoneyThousandSep='.';
+SET MoneyDecimalSep=',';
+SET MoneyFormat=' #.##0,00;( #.##0,00)';
+SET TimeFormat='hh:mm:ss';
+SET DateFormat='DD/MM/YYYY';
+SET TimestampFormat='DD/MM/YYYY hh:mm:ss[.fff]';
+SET MonthNames='Jan;Fev;Mar;Abr;Mai;Jun;Jul;Ago;Set;Out;Nov;Dez';
+SET DayNames='Seg;Ter;Qua;Qui;Sex;Sáb;Dom';
+SET LongMonthNames='Janeiro;Fevereiro;Março;Abril;Maio;Junho;Julho;Agosto;Setembro;Outubro;Novembro;Dezembro';
+SET DayNames='1;2;3;4;5;6;7';
+
+//---database config
+SET var_odbc = ODBC CONNECT TO CONSULTORIA (XUserId is XXX, XPassword is XXX);
+
+//---Path config
+SET var_path 	        = 'C:\Apps Internas\Projeto Iron\Qlik_v2\';
+SET var_path_con		= '$(var_path)1.Config\';
+SET var_path_oth_dat    = '$(var_path)2.OtherData\';
+SET var_path_ext		= '$(var_path)3.Extractor\';
+SET var_path_ext_dat 	= '$(var_path)4.ExtractData\';
+SET var_path_tra		= '$(var_path)5.Transform\';
+SET var_path_tra_dat 	= '$(var_path)6.TransformData\';
+SET var_path_dat_mod 	= '$(var_path)7.DataModel\';
+SET var_path_app		= '$(var_path)8.APP\';
+
+//---other config
+LET UltimoSabado = num(today()-2);
+LET UltimaSegunda = num(today()-num(weekday(today())));
+LET PenultimaSegunda = num(today()-num(weekday(today()))-7);
+LET DataOntem = num(today()-1);
+LET DataEmail = text(date(num(today()-num(weekday(today()))),'dd.MM'));
+LET HoraEmail = text(hour(now()));
+let vFiltros = 0;
+

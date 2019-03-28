@@ -1,0 +1,56 @@
+//Carregando o Config:
+$(must_include=..\1.Config\general_config.txt);
+
+LET var_hora_inicio = NOW();
+set ErrorMode = 0;
+
+emails:
+LOAD mail_membro as funcionario
+FROM $(var_path_ext_dat)Membro.qvd (qvd)
+where ativo_membro=1 and ID_membro<>4 and ID_membro<>1 and empresa_membro=1 and left(SubField(mail_membro,'@',2),5)='consultoria';
+
+let no_of_rows_var = NoOfRows('emails');
+
+for var = 0 to no_of_rows_var -1
+
+let email = SubField(peek('funcionario',var,'emails'),'@',1);
+
+trace $(email);
+
+
+calendar:
+//First 10
+LOAD *,'$(email)' as funcionario
+FROM [http://localhost:5555/data?connectorID=GoogleCalendarConnector&table=Events&encrypted_refresh_token=XXX&calendarName=$(email)%40consultoria.com.br&appID=] (qvx)
+where status = 'confirmed';
+
+calendarcanc:
+LOAD
+	SubField(id,'_20',1) 												 as id
+	,num(date#((Left(20&left(SubField(id,'_20',2),6),8)), 'YYYYMMDD')) 	 as data_num
+	,1 																	 as deletar_flag
+FROM [http://localhost:5555/data?connectorID=GoogleCalendarConnector&table=Events&encrypted_refresh_token=XXX&calendarName=$(email)%40consultoria.com.br&appID=] (qvx)
+where status = 'cancelled' and len(num(date#((Left(20&left(SubField(id,'_20',2),6),8)), 'YYYYMMDD')))>1
+;
+
+Concatenate(calendarcanc)
+LOAD 
+	SubField(id,'_20',1) 									as id
+	,num(DATE#(left(SubField(id,'_R',2),8),'YYYYMMDD'))		as data_num
+	,1 														as deletar_flag
+FROM [http://localhost:5555/data?connectorID=GoogleCalendarConnector&table=Events&encrypted_refresh_token=XXX&calendarName=$(email)%40consultoria.com.br&appID=] (qvx)
+where status = 'cancelled' and num(DATE#(left(SubField(id,'_R',2),8),'YYYYMMDD'))>1;
+//or num(DATE#(left(SubField(id,'_R',2),8),'YYYYMMDD'))	as data_num
+
+next;
+
+store calendar into $(var_path_ext_dat)calendar.qvd;
+store calendarcanc into $(var_path_ext_dat)calendarcanc.qvd;
+
+drop table calendar;
+DROP Table calendarcanc;
+
+set ErrorMode = 1;
+LET var_hora_fim = NOW();
+
+EXIT SCRIPT

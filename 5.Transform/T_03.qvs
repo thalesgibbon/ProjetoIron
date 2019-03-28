@@ -1,0 +1,167 @@
+$(Include=..\1.config\general_config.txt);
+
+STORE:
+load * inline [
+STORE
+T3_TABELA_DESCONTO
+T3_TABELA_CONFLITO
+T3_funcionario
+];
+tab_funcionario_lanc_flag:
+mapping load funcionario_id
+	,if(horas_realizadas>0,1,0) as funcionario_lanc_flag;
+load
+	 funcionario_id 				as funcionario_id
+	,sum(horas_realizadas)		as horas_realizadas
+From $(var_path_tra_dat)T2_LANCAMENTO.qvd (qvd)
+group by funcionario_id
+;
+
+//lendo tabela de funcionarios
+funcionario:
+LOAD
+	 funcionario_id
+    ,funcionario_desc
+    ,funcionario_gestor_id
+    ,funcionario_cargo_id
+    ,funcionario_ativo_flag
+    ,funcionario_mail
+    ,applymap('tab_funcionario_lanc_flag',funcionario_id,0) as funcionario_lanc_flag
+FROM $(var_path_tra_dat)T_MEMBRO.qvd (qvd)
+;
+
+//adicionando dimensoes
+left join (funcionario)
+LOAD 
+	  funcionario_id 	as funcionario_gestor_id
+     ,funcionario_desc 	as funcionario_gestor_desc
+FROM $(var_path_tra_dat)T_MEMBRO.qvd (qvd);
+
+left join (funcionario)
+LOAD
+	 funcionario_id
+    ,funcionario_funcao_id
+    ,funcionario_flag_qliker
+FROM $(var_path_tra_dat)T_MEMBRO_FUNCAO.QVD (qvd);
+
+left join
+LOAD 
+	 funcionario_funcao_id
+    ,funcionario_funcao_desc
+FROM $(var_path_tra_dat)T_FUNCAO.QVD (qvd);
+
+left join
+LOAD
+	 funcionario_cargo_id
+    ,funcionario_flag_CLT
+    ,funcionario_cargo_desc
+FROM $(var_path_tra_dat)T_TIPO_SERVICO.qvd (qvd);
+
+
+STORE funcionario INTO $(var_path_tra_dat)T3_funcionario.qvd;
+DROP TABLE funcionario;
+APPLY_HIERARQUIA:
+MAPPING LOAD distinct 
+id_filho, id_pai
+FROM $(var_path_tra_dat)T2_PROJETO.QVD (qvd);
+//////////////////////////////////////////////////////////////////////////
+//identificando os projetos pais das tarefas e subprojetos
+PROJETOS_HIERARQUIA_PROJETO:
+LOAD distinct id_filho as projeto, id_filho as projeto_pai
+FROM $(var_path_tra_dat)T2_PROJETO.QVD (qvd)
+WHERE len(id_pai)=0;
+
+NoConcatenate
+TAREFAS_HIERARQUIA_TAREFA:
+LOAD distinct id_filho as tarefa,ApplyMap('APPLY_HIERARQUIA',id_filho) as tarefa_pai
+FROM $(var_path_tra_dat)T2_PROJETO.QVD (qvd)
+WHERE Exists(projeto,id_pai);
+
+NoConcatenate
+TAREFAS_HIERARQUIA_SUBTAREFA:
+LOAD distinct id_filho as subtarefa,ApplyMap('APPLY_HIERARQUIA',id_filho) as subtarefa_pai
+FROM $(var_path_tra_dat)T2_PROJETO.QVD (qvd)
+WHERE Exists(tarefa,id_pai);
+
+//////////////////////////////////////////////////////////////////////////
+//calculando quantas horas precisam ser descontadas dos projetos pais
+TABELA_DESCONTO_TEMP:
+LOAD ApplyMap('APPLY_HIERARQUIA',tarefa_id)&'|'&funcionario_id as chave_tarefa_funcionario
+, interval(sum(esforco_previsto),'hh:mm') as desconto
+FROM $(var_path_tra_dat)T2_ESFORCO_TAREFA.qvd (qvd)
+WHERE exists(subtarefa,tarefa_id)
+GROUP BY ApplyMap('APPLY_HIERARQUIA',tarefa_id)&'|'&funcionario_id
+;
+
+Concatenate (TABELA_DESCONTO_TEMP)
+LOAD ApplyMap('APPLY_HIERARQUIA',tarefa_id)&'|'&funcionario_id as chave_tarefa_funcionario
+, interval(sum(esforco_previsto),'hh:mm') as desconto
+FROM $(var_path_tra_dat)T2_ESFORCO_TAREFA.qvd (qvd)
+WHERE exists(tarefa,tarefa_id)
+GROUP BY ApplyMap('APPLY_HIERARQUIA',tarefa_id)&'|'&funcionario_id
+;
+
+//agrupando por chave
+NoConcatenate
+T3_TABELA_DESCONTO:
+LOAD chave_tarefa_funcionario, sum(desconto) as desconto RESIDENT TABELA_DESCONTO_TEMP GROUP BY chave_tarefa_funcionario;
+//////////////////////////////////////////////////////////////////////////
+drop tables PROJETOS_HIERARQUIA_PROJETO, TAREFAS_HIERARQUIA_TAREFA, TAREFAS_HIERARQUIA_SUBTAREFA,TABELA_DESCONTO_TEMP;
+
+STORE T3_TABELA_DESCONTO INTO $(var_path_tra_dat)T3_TABELA_DESCONTO.qvd;
+DROP TABLE T3_TABELA_DESCONTO;
+//identificando registros intercalados,lendo tabela de lancamentos e criando campo de chave IM
+BASE:
+LOAD 
+	 lancamento_id, 
+	 funcionario_id&'|'&data_num as chave_IM,
+     lancamento_tipo_id, 
+     publicador_id, 
+     tarefa_id, 
+     data_num, 
+     intervalo, 
+     horas_realizadas, 
+     horas_100, 
+     lancamento_desc, 
+     lancamento_tipo_desc, 
+     funcionario_id, 
+     chave_lancamento,
+     lancamento_hora_inicio+'00:00'	as entrada,
+     lancamento_hora_fim-'00:00'	as saida
+FROM $(var_path_tra_dat)T2_LANCAMENTO.qvd (qvd);
+
+//adicionando e reduzindo 1m para que esteja entre o intervalo
+EVENTS:
+Load chave_IM, entrada+'00:01'  as hora RESIDENT BASE;
+Concatenate
+Load chave_IM, saida-'00:01'    as hora RESIDENT BASE;
+
+//tabela para IM
+INTERVALS:
+LOAD
+	chave_IM,
+	entrada,
+	saida
+RESIDENT BASE;
+
+//IM
+INTERVALMATCH:
+IntervalMatch (hora,chave_IM)
+Load distinct entrada, saida, chave_IM RESIDENT INTERVALS;
+left join (INTERVALMATCH)
+Load * RESIDENT BASE;
+
+//lendo resultado do IM e filtrando registros intercalados
+NoConcatenate
+TABELA_CONFLITO:
+LOAD distinct
+	 chave_lancamento
+	,lancamento_id
+	,3 as lancamento_conflito_flag
+RESIDENT INTERVALMATCH
+WHERE (hora-'00:01')<>entrada and (hora+'00:01')<>saida;
+
+drop tables BASE,EVENTS,INTERVALS,INTERVALMATCH;
+
+STORE TABELA_CONFLITO 	INTO $(var_path_tra_dat)T3_TABELA_CONFLITO.qvd;
+DROP TABLE TABELA_CONFLITO;

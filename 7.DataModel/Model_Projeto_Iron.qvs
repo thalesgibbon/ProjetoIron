@@ -1,0 +1,84 @@
+//BINARY C:\Apps Internas\Casa de Ferreiro\7.NuvensDados\N_Casa_de_Ferreiro.qvw;
+
+$(must_include=..\1.Config\general_config.txt);
+
+set BancoTipo = 'Aberto';
+
+set Data_limite = if(GetPossibleCount(funcionario_desc)=1, if(BancoTipo='Aberto',date($(num(today()-1))),date($(num(today()-num(weekday(today())))))));
+DIMENSAO_TAREFA:
+LOAD * FROM $(var_path_tra_dat)T2_PROJETO.qvd (qvd);
+left join (DIMENSAO_TAREFA)
+LOAD * FROM $(var_path_tra_dat)T2_ORGANIZACAO.qvd (qvd);
+
+FATO_LANCAMENTO:
+LOAD * FROM $(var_path_tra_dat)T6_LANCAMENTO.qvd (qvd);
+drop fields data_num, funcionario_id,tarefa_id,chave_tarefa_funcionario,chave_lancamento from FATO_LANCAMENTO;
+
+INCONFORMIDADE:
+LOAD * FROM $(var_path_tra_dat)T5_INCONFORMIDADE.qvd (qvd);
+
+DIMENSAO_FUNCIONARIO:
+LOAD * FROM $(var_path_tra_dat)T3_FUNCIONARIO.qvd (qvd);
+
+DIMENSAO_MASTER_CALENDAR:
+LOAD * FROM $(var_path_tra_dat)T2_TAB_DATA.qvd (qvd);
+
+HORAS_ORCADAS:
+LOAD * FROM $(var_path_tra_dat)T4_HORA_ORCADA.qvd (qvd);
+drop fields data_num, funcionario_id from HORAS_ORCADAS;
+
+LINK_TABLE:
+LOAD * FROM $(var_path_tra_dat)T7_LINK_TABLE.qvd (qvd);  
+//drop fields tarefa_id, funcionario_id from LINK_TABLE;
+
+//join(LINK_TABLE)
+//LOAD * FROM $(var_path_tra_dat)LINK_TABLE_2.qvd (qvd);
+
+//ILHA_ANOS:
+//LOAD * FROM $(var_path_tra_dat)ILHA_ANOS.qvd (qvd);
+
+//TABELA_SALDO:
+//LOAD * FROM $(var_path_tra_dat)TABELA_SALDO.qvd (qvd);
+
+HORAS_PREVISTAS:
+LOAD * FROM $(var_path_tra_dat)T5_HORAS_PREVISTAS.qvd (qvd);
+drop fields chave_lancamento, chave_tarefa_funcionario, funcionario_id, tarefa_id, data_num from HORAS_PREVISTAS;
+
+CALENDAR:
+LOAD * 
+//,RowNo() as Num_Linha
+FROM $(var_path_tra_dat)T2_CALENDAR.qvd (qvd);
+drop fields chave_lancamento, chave_tarefa_funcionario, funcionario_id, tarefa_id, data_num from CALENDAR;
+
+//SALDOFATnFAT:
+//
+//load * From $(var_path_tra_dat)T6_FATnFAT.qvd (qvd);
+//drop fields data_num, funcionario_id,tarefa_id, chave_lancamento from SALDOFATnFAT;
+QUALIFY *;
+
+#Metricas:
+LOAD  id
+     ,app
+     ,id_sheet
+     ,kpi_name 
+     ,expression
+     ,type
+     ,format
+FROM
+[$(var_path_con)dictionarya.xlsx]
+(ooxml, embedded labels, table is kpi)
+where len(id)>0;
+
+#Dimensoes:
+LOAD  id
+     ,app
+     ,id_sheet
+     ,dimension_name 
+     ,expression
+     ,format
+FROM
+[$(var_path_con)dictionary.xlsx]
+(ooxml, embedded labels, table is dimension)
+where len(id)>0;
+
+exit Script;

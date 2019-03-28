@@ -1,0 +1,165 @@
+$(Include=..\1.config\general_config.txt);
+
+STORE:
+load * inline [
+STORE
+T4_HORA_ORCADA
+T4_INTERVALO
+];
+//////////////////////////////////////////////////////////////////////////////// ferias inicio
+//lendo tabela ferias
+FERIAS_TEMP:
+LOAD
+	 funcionario
+	,data_inicio
+	,data_fim
+FROM $(var_path_tra_dat)T_DRIVE_FERIAS.qvd (qvd);
+
+// lendo todos os funcionarios e todas datas
+DATA:
+load data_num FROM $(var_path_tra_dat)T2_TAB_DATA.qvd (qvd);
+outer join(DATA)
+LOAD Distinct funcionario RESIDENT FERIAS_TEMP;
+
+NoConcatenate
+FERIAS_TEMP2:  
+IntervalMatch(data_num,funcionario)  
+LOAD data_inicio, data_fim,funcionario
+RESIDENT FERIAS_TEMP;  
+
+left join (FERIAS_TEMP2)
+LOAD * RESIDENT FERIAS_TEMP;
+drop tables DATA,FERIAS_TEMP;
+
+FERIAS_TEMP3:
+LOAD funcionario&'|'&data_num as chave_intervalmatch
+RESIDENT FERIAS_TEMP2;
+DROP TABLE FERIAS_TEMP2;
+
+//////////////////////////////////////////////////////////////////////////////// ferias fim
+//////////////////////////////////////////////////////////////////////////////// horas orcadas inicio
+FERIADO:
+LOAD
+	 data_num
+	,motivo
+FROM $(var_path_tra_dat)T_DRIVE_FERIADO.qvd (qvd);
+
+DATA:
+load data_num FROM $(var_path_tra_dat)T2_TAB_DATA.qvd (qvd)
+WHERE
+	not match(WeekDay(data_num),7,6)
+    and not exists(data_num)
+    ;
+DROP TABLE FERIADO;
+
+ORCADO:
+LOAD
+	 funcionario
+	,data_inicio
+	,data_fim
+	,horas_diarias
+FROM $(var_path_tra_dat)T_DRIVE_ORCADO.qvd (qvd);
+
+outer join(DATA)
+LOAD Distinct funcionario RESIDENT ORCADO;
+
+NoConcatenate
+HORA_ORCADA_TEMP:  
+IntervalMatch(data_num,funcionario)  
+LOAD data_inicio, data_fim,funcionario
+RESIDENT ORCADO;  
+
+left join (HORA_ORCADA_TEMP)
+LOAD * RESIDENT ORCADO;
+DROP TABLES DATA,ORCADO;
+//
+NoConcatenate
+HORA_ORCADA_TEMP2:
+LOAD
+	 data_num							as data_num
+    ,funcionario 							as funcionario_desc
+    ,interval(horas_diarias, 'hh:mm') 	as horas_orcadas
+RESIDENT HORA_ORCADA_TEMP
+WHERE not Exists(chave_intervalmatch,funcionario&'|'&data_num)
+;
+
+drop tables HORA_ORCADA_TEMP,FERIAS_TEMP3;
+
+//////////////////////////////////////////////////////////////////////////////// horas orcadas inicio
+//////////////////////////////////////////////////////////////////////////////// horas pagas inicio
+outer join (HORA_ORCADA_TEMP2)
+LOAD 
+	 data_num
+	,funcionario_desc
+	,horas_orcadas
+    ,horas_pagas_flag
+FROM  $(var_path_tra_dat)T_DRIVE_PAGO.qvd (qvd);
+//////////////////////////////////////////////////////////////////////////////// horas pagas fim
+Right Join(HORA_ORCADA_TEMP2)
+LOAD 
+	 funcionario_id
+	,funcionario_desc
+FROM  $(var_path_tra_dat)T3_funcionario.qvd (qvd);
+
+drop Field funcionario_desc FROM HORA_ORCADA_TEMP2;
+
+
+HORA_ORCADA:
+LOAD *
+	,funcionario_id&'|'&data_num as chave_lancamento
+RESIDENT HORA_ORCADA_TEMP2
+WHERE not isnull(data_num) ;
+DROP TABLE HORA_ORCADA_TEMP2;
+//rename field data_num to data_num, funcionario_id to funcionario_id;
+
+STORE HORA_ORCADA INTO $(var_path_tra_dat)T4_HORA_ORCADA.qvd;
+DROP TABLE HORA_ORCADA;
+//lendo a tabela lancamento para identificar quais funcionario em qual dia nao fez intervalo de almoco maior de 1h
+INTERVALO_TEMP:
+NoConcatenate
+LOAD * FROM $(var_path_tra_dat)T2_LANCAMENTO.qvd (qvd);
+
+left join (INTERVALO_TEMP)
+LOAD
+	 funcionario_id
+	,funcionario_cargo_id
+FROM $(var_path_tra_dat)T3_funcionario.qvd (qvd);
+
+INTERVALO:
+LOAD
+	chave_lancamento
+	,intervalo_faltante
+	,funcionario_id
+	,data_num
+WHERE not len(intervalo_faltante)=0
+;
+//validando o periodo
+LOAD 
+	 funcionario_id&'|'&data_num as chave_lancamento
+	,funcionario_id
+	,data_num
+	,if(funcionario_cargo_id=4
+		,if(intervalo<='00:59',if(interval((lanc_fim-lanc_ini-horas_realizadas),'hh:mm')<='00:59', 'CLT: '&interval((lanc_fim-lanc_ini-horas_realizadas),'hh:mm')&' de intervalo'))
+		) as intervalo_faltante 
+;
+//agrupandopor funcionario e data
+LOAD
+	 funcionario_id
+	,data_num
+	,sum(intervalo) 				as intervalo
+	,sum(horas_realizadas) 			as horas_realizadas
+	,min(lancamento_hora_inicio) 	as lanc_ini
+	,max(lancamento_hora_fim) 		as lanc_fim
+	,max(funcionario_cargo_id) 			as funcionario_cargo_id
+RESIDENT INTERVALO_TEMP
+WHERE
+	not len(horas_realizadas)=0
+	and	match(funcionario_cargo_id,4,7)
+GROUP BY funcionario_id,data_num
+;
+
+DROP TABLE INTERVALO_TEMP;
+
+STORE INTERVALO 	INTO $(var_path_tra_dat)T4_INTERVALO.qvd;
+DROP TABLE INTERVALO;
+

@@ -1,0 +1,92 @@
+$(Include=..\1.config\general_config.txt);
+
+STORE:
+load * inline [
+STORE
+T_MEMBRO
+T_EMPRESA
+T_TIPO_ORGANIZACAO
+T_TAREFA
+T_SITUACAO
+T_TIPO_MODELO
+T_CLIENTE_PROJETO
+T_TAREFA_USUARIO
+T_DOCUMENTACAO
+T_TIPO_DOCUMENTACAO
+T_DOCUMENTACAO_EXECUCAO
+T_MEMBRO_FUNCAO
+T_FUNCAO
+T_CALENDAR
+T_TIPO_SERVICO
+T_DRIVE_FERIAS
+T_DRIVE_FERIADO
+T_DRIVE_ORCADO
+T_DRIVE_PAGO
+];
+
+funcionario_mail:
+Mapping LOAD 
+	 SubField(mail_membro,'@',1) 		as funcionario
+	,ID_membro			as funcionario_id
+FROM $(var_path_ext_dat)Membro.qvd (qvd)
+where ativo_membro=1 and ID_membro<>4 and ID_membro<>1 and empresa_membro=1;
+
+
+LET var_hora_inicio = NOW();
+
+
+
+
+TABLES:
+LOAD qvd,
+     where,
+     table
+FROM $(var_path_con)dictionary.xlsx (ooxml, embedded labels, table is table)
+WHERE transform = 'yes'
+;
+
+FOR a = 0 TO NoOfRows('TABLES')-1
+	let var_qvd     = peek('qvd',$(a),'TABLES');
+	let var_table   = peek('table',$(a),'TABLES');
+	let var_where   = peek('where',$(a),'TABLES');
+	
+	FIELDS:
+	LOAD 
+		if(len([hardcode]) > 0
+			,chr(39)&[hardcode]&chr(39)
+			,if(len(column) > 0
+				,'['&column&']'
+				,calculated
+				)
+			) 						as field
+			,'['& field_name & ']' as field_name
+	FROM $(var_path_con)dictionary.xlsx (ooxml, embedded labels, table is field)
+	WHERE qvd = '$(var_qvd)';
+	
+	LET var_select = PEEK('field',0,'FIELDS')&' as '&PEEK('field_name',0,'FIELDS');
+	
+	FOR b = 1 TO NoOfRows('FIELDS')-1
+		LET var_select = '$(var_select)'&', '&PEEK('field',$(b),'FIELDS')&' as '&PEEK('field_name',$(b),'FIELDS');
+	NEXT
+
+	DROP TABLE FIELDS;
+	
+	IF LEN('$(var_where)')=0 THEN
+		$(var_table):
+		LOAD $(var_select)
+		FROM $(var_path_ext_dat)$(var_table).qvd (qvd)
+		;
+	ELSE
+		$(var_table):
+		LOAD $(var_select)
+		FROM $(var_path_ext_dat)$(var_table).qvd (qvd)
+		WHERE $(var_where)
+		;
+	ENDIF
+	STORE $(var_table) into $(var_path_tra_dat)T_$(var_qvd).qvd (qvd);
+	drop table $(var_table);
+NEXT
+
+DROP TABLE TABLES;
+
+LET var_hora_fim = NOW();

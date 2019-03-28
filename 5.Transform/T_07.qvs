@@ -1,0 +1,74 @@
+$(Include=..\1.config\general_config.txt);
+//STORE FATnFAT into $(var_path_tra_dat)T6_FATnFAT.qvd;
+
+LINK_TABLE_TEMP:
+LOAD
+     data_num 
+    ,funcionario_id
+    ,chave_lancamento
+FROM $(var_path_tra_dat)T6_LANCAMENTO.qvd (qvd)
+;
+Concatenate (LINK_TABLE_TEMP)
+LOAD
+     data_num
+    ,funcionario_id
+    ,chave_lancamento
+FROM $(var_path_tra_dat)T4_HORA_ORCADA.qvd (qvd)
+;
+Concatenate (LINK_TABLE_TEMP)
+LOAD
+     data_num
+    ,funcionario_id
+    ,chave_lancamento
+FROM $(var_path_tra_dat)T4_INTERVALO.qvd (qvd)
+;
+
+left join (LINK_TABLE_TEMP)
+LOAD chave_lancamento, tarefa_id
+FROM $(var_path_tra_dat)T6_LANCAMENTO.qvd (qvd)
+;
+
+Concatenate (LINK_TABLE_TEMP)
+LOAD
+     data_num
+    ,funcionario_id
+    ,chave_lancamento
+    ,tarefa_id
+//	,chave_tarefa_funcionario
+//	,chave_fato
+FROM $(var_path_tra_dat)T2_CALENDAR.qvd (qvd)
+;
+
+Concatenate (LINK_TABLE_TEMP)
+LOAD
+     data_num
+    ,funcionario_id
+    ,tarefa_id
+    ,chave_lancamento
+//	,chave_tarefa_funcionario
+//	,chave_fato
+FROM $(var_path_tra_dat)T5_HORAS_PREVISTAS.qvd (qvd)
+;
+
+NoConcatenate
+LINK_TABLE_TEMP2:
+LOAD Distinct 
+	*
+	,tarefa_id&'|'&funcionario_id as chave_tarefa_funcionario
+	,tarefa_id&'|'&funcionario_id&'|'&data_num 	as chave_fato
+RESIDENT LINK_TABLE_TEMP
+//WHERE not isnull(tarefa_id)
+;
+
+DROP TABLE LINK_TABLE_TEMP;
+
+NoConcatenate
+LINK_TABLE_TEMP3:
+LOAD Distinct *,1 as teste
+RESIDENT LINK_TABLE_TEMP2;
+
+DROP TABLE LINK_TABLE_TEMP2;
+drop field teste;
+
+STORE LINK_TABLE_TEMP3 INTO $(var_path_tra_dat)T7_LINK_TABLE.qvd;
+DROP TABLE LINK_TABLE_TEMP3;
