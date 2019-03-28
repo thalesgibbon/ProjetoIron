@@ -9,7 +9,7 @@ Alguns exemplos de metricas elaboradas: Horas realizadas, Horas previstas, Horas
 Alguns exemplos de dimensoes desenvolvidas: Por colaborador, produtivas e inprodutiva, cliente, projeto, etc.
 
 Comentario: Este foi meu primeiro projeto em que utilizei o metodo dinamico de criacao em um projeto Qlikview. Este metodo unifica todos scripts e funcoes em uma planilha(Excel) com objetivo de reduzir erros de desenvolvimento. Para contribuir com o metodo, adaptei a criacao de graficos dinamicos no arquivo de modelagem, resultando numa facil visualizacao de dimensoes e metricas dinamicas (vide 7.DataModel).
-![Alt Text](https://github.com/thalesgibbon/ProjetoIron/raw/master/ProjetoIron_DinamicTable.png)
+![Alt Text](https://github.com/thalesgibbon/ProjetoIron/raw/master/files/ProjetoIron_DinamicTable.png)
 
 ## Estrutura 
 
@@ -28,16 +28,16 @@ Comentario: Este foi meu primeiro projeto em que utilizei o metodo dinamico de c
 (obs: dados foram mesclados por motivos de confidencialidade)
 
 Aba para acompanhar o saldo de horas dos colaboradores da consultoria:
-![Alt Text](https://github.com/thalesgibbon/ProjetoIron/raw/master/ProjetoIron_SaldoHoras.png)
+![Alt Text](https://github.com/thalesgibbon/ProjetoIron/raw/master/files/ProjetoIron_SaldoHoras.png)
 
 Aba para acompanhar os projetos ativos e inativos, como tambem as horas alocadas em cada tarefa:
-![Alt Text](https://github.com/thalesgibbon/ProjetoIron/raw/master/ProjetoIron_Tarefas.png)
+![Alt Text](https://github.com/thalesgibbon/ProjetoIron/raw/master/files/ProjetoIron_Tarefas.png)
 
 Aba para acompanhar especificamente a equipe de suporte a clientes:
-![Alt Text](https://github.com/thalesgibbon/ProjetoIron/raw/master/ProjetoIron_EquipeSuporte.png)
+![Alt Text](https://github.com/thalesgibbon/ProjetoIron/raw/master/files/ProjetoIron_EquipeSuporte.png)
 
 Aba enviada semanalmente com o report de horas para cada cliente.
-![Alt Text](https://github.com/thalesgibbon/ProjetoIron/raw/master/ProjetoIron_Report.png)
+![Alt Text](https://github.com/thalesgibbon/ProjetoIron/raw/master/files/ProjetoIron_Report.png)
 
 
 ## Stack:
